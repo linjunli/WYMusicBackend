@@ -1,10 +1,12 @@
 package main
 
 import (
-	"WYMusicBackend/util"
-	"encoding/json"
+	"WYMusicBackend/src/daemon"
+	"WYMusicBackend/src/server"
 	"fmt"
-	"math/big"
+	"os"
+	"os/signal"
+	"syscall"
 )
 
 type Text struct {
@@ -12,32 +14,37 @@ type Text struct {
 }
 
 func main() {
-	a := &Text{A:1}
-
-	b,_ := json.Marshal(a)
-
-	text := string(b)
-
-	params,encSec := util.WeApi(text)
-
-	fmt.Printf("params: %s | encSec: %s\n",params,encSec)
-}
-
-// 自定义大数运算
-func pow(a *big.Int, b int) *big.Int {
-	var i int
-	val := big.NewInt(1)
-	for i = 0; i < b; i++ {
-		val.Mul(val, a)
-		fmt.Println(val)
+	// 默认输出到日志
+	file, err := os.OpenFile("WYMusic.log", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0666)
+	if err != nil {
+		os.Exit(-1)
 	}
-	return val.Rem(val, big.NewInt(21))
-}
+	defer func() {
+		_ = file.Close()
+	}()
+	os.Stderr, os.Stdout = file, file
 
-func gcd(a int64, b int64) int64 {
-	if b > 0 {
-		return gcd(b, a%b)
-	} else {
-		return a
+	daemon.AppPath = os.Args[0]
+	switch isDaemon, err := daemon.Daemonize(); {
+	case !isDaemon:
+		fmt.Println("other process is running!")
+		return
+	case err != nil:
+		panic(err)
 	}
+
+	srv := server.NewServer()
+	srv.Start()
+	fmt.Println("srv starting...")
+
+	c := make(chan os.Signal)
+	signal.Notify(c)
+	signal.Ignore(syscall.SIGCHLD, syscall.SIGPIPE, syscall.SIGHUP)
+
+	<-c
+
+	srv.Stop()
+
+	fmt.Println("srv stopped")
+
 }
